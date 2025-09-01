@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Yandex OAuth Auto</title>
+  <title>Загрузка фото на Яндекс.Диск</title>
 </head>
 <body>
   <h2>Загрузка фото на Яндекс.Диск</h2>
@@ -11,22 +11,61 @@
   <button id="uploadBtn" style="display:none">Выбрать фотографии</button>
 
   <script>
-    const CLIENT_ID = "4bc4d55d82f4403fa49256dc971508fd"; // вставь сюда client_id от Яндекса
+    const CLIENT_ID = "4bc4d55d82f4403fa49256dc971508fd"; // вставь сюда client_id от Яндекс OAuth
     const REDIRECT_URI = window.location.origin + window.location.pathname;
 
-    // Функция для начала OAuth авторизации
+    // Начало OAuth авторизации
     function startAuth() {
       const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
       window.location.href = authUrl;
     }
 
-    // Проверяем, вернулся ли access_token в URL после редиректа
+    // Выводим сообщения в output
+    function log(msg) {
+      const output = document.getElementById("output");
+      output.textContent += msg + "\n";
+    }
+
+    // Загрузка файла на Яндекс.Диск
+    async function uploadFile(token, file) {
+      try {
+        // 1. Получаем ссылку для загрузки
+        const res1 = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodeURIComponent(file.name)}&overwrite=true`, {
+          method: "GET",
+          headers: { Authorization: `OAuth ${token}` }
+        });
+        const data1 = await res1.json();
+        if (!data1.href) throw new Error("Не удалось получить ссылку для загрузки");
+
+        // 2. Загружаем файл
+        const res2 = await fetch(data1.href, {
+          method: "PUT",
+          body: file
+        });
+        if (!res2.ok) throw new Error("Ошибка загрузки файла");
+
+        // 3. Получаем публичную ссылку
+        const res3 = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/publish?path=${encodeURIComponent(file.name)}`, {
+          method: "PUT",
+          headers: { Authorization: `OAuth ${token}` }
+        });
+        const data3 = await res3.json();
+
+        // 4. Формируем прямую ссылку
+        const link = `https://yadi.sk/d/${data3.path.split('/').pop()}`;
+        log(`Файл "${file.name}" загружен. Ссылка: ${link}`);
+      } catch (err) {
+        log(`Ошибка: ${err.message}`);
+      }
+    }
+
+    // Проверяем, есть ли токен в URL
     const hash = new URLSearchParams(window.location.hash.substring(1));
     if (hash.has("access_token")) {
       const token = hash.get("access_token");
-      document.getElementById("output").textContent = "access_token: " + token;
+      log("access_token: " + token);
 
-      // Показываем кнопку выбора файлов
+      // Показываем кнопку и input
       document.getElementById("uploadBtn").style.display = "inline-block";
       document.getElementById("fileInput").style.display = "inline-block";
 
@@ -37,12 +76,12 @@
       document.getElementById("fileInput").onchange = async (event) => {
         const files = event.target.files;
         for (let file of files) {
-          // Здесь будет логика загрузки на Яндекс.Диск через API с токеном
-          console.log("Выбран файл:", file.name);
+          await uploadFile(token, file);
         }
       };
+
     } else {
-      // Если токена нет, сразу начинаем авторизацию
+      // Если токена нет, сразу редиректим на авторизацию
       startAuth();
     }
   </script>

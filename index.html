@@ -2,30 +2,49 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Yandex OAuth Test</title>
+  <title>Yandex OAuth Auto</title>
 </head>
 <body>
-  <h2>Авторизация через Яндекс</h2>
-  <button id="login">Войти через Яндекс</button>
+  <h2>Загрузка фото на Яндекс.Диск</h2>
   <pre id="output"></pre>
+  <input type="file" id="fileInput" multiple style="display:none"/>
+  <button id="uploadBtn" style="display:none">Выбрать фотографии</button>
 
   <script>
     const CLIENT_ID = "4bc4d55d82f4403fa49256dc971508fd"; // вставь сюда client_id от Яндекса
     const REDIRECT_URI = window.location.origin + window.location.pathname;
 
-    // 1. Проверяем, не вернулся ли токен в URL после авторизации
-    const hash = new URLSearchParams(window.location.hash.substring(1));
-    if (hash.has("access_token")) {
-      document.getElementById("output").textContent =
-        "access_token: " + hash.get("access_token");
-    }
-
-    // 2. Кнопка для старта авторизации
-    document.getElementById("login").onclick = () => {
+    // Функция для начала OAuth авторизации
+    function startAuth() {
       const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
       window.location.href = authUrl;
-    };
+    }
+
+    // Проверяем, вернулся ли access_token в URL после редиректа
+    const hash = new URLSearchParams(window.location.hash.substring(1));
+    if (hash.has("access_token")) {
+      const token = hash.get("access_token");
+      document.getElementById("output").textContent = "access_token: " + token;
+
+      // Показываем кнопку выбора файлов
+      document.getElementById("uploadBtn").style.display = "inline-block";
+      document.getElementById("fileInput").style.display = "inline-block";
+
+      document.getElementById("uploadBtn").onclick = () => {
+        document.getElementById("fileInput").click();
+      };
+
+      document.getElementById("fileInput").onchange = async (event) => {
+        const files = event.target.files;
+        for (let file of files) {
+          // Здесь будет логика загрузки на Яндекс.Диск через API с токеном
+          console.log("Выбран файл:", file.name);
+        }
+      };
+    } else {
+      // Если токена нет, сразу начинаем авторизацию
+      startAuth();
+    }
   </script>
 </body>
 </html>
-

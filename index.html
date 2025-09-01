@@ -15,28 +15,29 @@
 </head>
 <body>
 
-<h2>Загрузка на общий диск Яндекс.Диска</h2>
+<h2>Управление общим диском</h2>
 
-<div id="output"></div>
+<pre id="output"></pre>
 
+<button id="checkDiskBtn" style="display:none">Проверить информацию о диске</button>
+<button id="checkFolderBtn" style="display:none">Проверить / создать папку "тау тест"</button>
 <input type="file" id="fileInput" multiple style="display:none"/>
 <button id="selectBtn" style="display:none">Выбрать фотографии</button>
-<button id="uploadBtn" style="display:none">Загрузить на диск</button>
+<button id="uploadBtn" style="display:none">Загрузить в "тау тест"</button>
 
 <div id="preview"></div>
 
 <script>
-const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; // вставь сюда client_id
+const CLIENT_ID = "4bc4d55d82f4403fa49256dc971508fd"; // вставь свой client_id
 const REDIRECT_URI = window.location.origin + window.location.pathname;
 let filesToUpload = [];
 
-// Функция для логов
 function log(msg) {
   const output = document.getElementById("output");
   output.textContent += msg + "\n";
 }
 
-// Проверяем, есть ли access_token
+// Проверка токена в URL
 const hash = new URLSearchParams(window.location.hash.substring(1));
 let accessToken = null;
 
@@ -44,11 +45,57 @@ if (hash.has("access_token")) {
   accessToken = hash.get("access_token");
   log("Авторизация успешна. Access token получен.");
 
-  // Показываем кнопки
+  // Показываем кнопки управления диском
+  document.getElementById("checkDiskBtn").style.display = "inline-block";
+  document.getElementById("checkFolderBtn").style.display = "inline-block";
   document.getElementById("selectBtn").style.display = "inline-block";
   document.getElementById("uploadBtn").style.display = "inline-block";
 
-  // Выбор файлов
+  // 1. Проверка информации о диске
+  document.getElementById("checkDiskBtn").onclick = async () => {
+    try {
+      const res = await fetch("https://cloud-api.yandex.net/v1/disk/virtual-disks/resources", {
+        method: "GET",
+        headers: { Authorization: `OAuth ${accessToken}` }
+      });
+      const data = await res.json();
+      log("Информация о диске:\n" + JSON.stringify(data, null, 2));
+    } catch (err) {
+      log("Ошибка при проверке диска: " + err.message);
+    }
+  };
+
+  // 2. Проверка или создание папки "тау тест"
+  document.getElementById("checkFolderBtn").onclick = async () => {
+    const folderPath = "/тау тест";
+    try {
+      // Проверяем, существует ли папка
+      const res = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=${encodeURIComponent(folderPath)}`, {
+        method: "GET",
+        headers: { Authorization: `OAuth ${accessToken}` }
+      });
+      if (res.status === 404) {
+        log(`Папка "${folderPath}" не найдена. Создаём...`);
+        // Создаём папку
+        const createRes = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=${encodeURIComponent(folderPath)}`, {
+          method: "PUT",
+          headers: { Authorization: `OAuth ${accessToken}` }
+        });
+        if (createRes.ok) {
+          log(`Папка "${folderPath}" успешно создана.`);
+        } else {
+          log(`Ошибка при создании папки: ${createRes.status}`);
+        }
+      } else {
+        const data = await res.json();
+        log(`Папка "${folderPath}" уже существует:\n` + JSON.stringify(data, null, 2));
+      }
+    } catch (err) {
+      log("Ошибка при проверке/создании папки: " + err.message);
+    }
+  };
+
+  // 3. Выбор файлов
   document.getElementById("selectBtn").onclick = () => {
     document.getElementById("fileInput").click();
   };
@@ -70,27 +117,25 @@ if (hash.has("access_token")) {
     });
   };
 
-  // Загрузка файлов
+  // 4. Загрузка файлов в папку "тау тест"
   document.getElementById("uploadBtn").onclick = async () => {
+    const folderPath = "/тау тест";
     for (let file of filesToUpload) {
       try {
-        // 1. Получаем ссылку для загрузки на общий диск
-        const path = `/Общий/${file.name}`; // путь на общем диске, можно изменить
-        const res1 = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources/upload?path=${encodeURIComponent(path)}&overwrite=true`, {
+        const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources/upload?path=${encodeURIComponent(folderPath + "/" + file.name)}&overwrite=true`, {
           method: "GET",
           headers: { Authorization: `OAuth ${accessToken}` }
         });
-        const data1 = await res1.json();
-        if (!data1.href) throw new Error("Не удалось получить ссылку для загрузки");
+        const uploadData = await uploadRes.json();
+        if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
 
-        // 2. Загружаем файл
-        const res2 = await fetch(data1.href, {
+        const putRes = await fetch(uploadData.href, {
           method: "PUT",
           body: file
         });
-        if (!res2.ok) throw new Error("Ошибка загрузки файла");
+        if (!putRes.ok) throw new Error("Ошибка загрузки файла");
 
-        log(`Файл "${file.name}" успешно загружен на общий диск.`);
+        log(`Файл "${file.name}" успешно загружен.`);
       } catch (err) {
         log(`Ошибка при загрузке "${file.name}": ${err.message}`);
       }
@@ -102,7 +147,7 @@ if (hash.has("access_token")) {
   };
 
 } else {
-  // Если токена нет, сразу редиректим на авторизацию
+  // Если токена нет, редирект на OAuth
   const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=cloud_api:disk.read cloud_api:disk.write`;
   window.location.href = authUrl;
 }

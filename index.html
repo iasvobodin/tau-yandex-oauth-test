@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
@@ -165,7 +165,124 @@ if (hash.has("access_token")) {
 }
 </script>
 </body>
+</html> -->
+
+
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Загрузка на общий диск</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; background: #f9f9f9; }
+  h2 { color: #333; }
+  #info { background: #e0f7fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+  #preview { display: flex; flex-wrap: wrap; margin-top: 10px; }
+  .thumb { margin: 5px; border: 1px solid #ccc; padding: 5px; width: 120px; text-align: center; border-radius: 6px; background: #fff; }
+  .thumb img { max-width: 100px; max-height: 100px; border-radius: 4px; }
+  button { margin: 5px; padding: 10px 20px; cursor: pointer; border-radius: 5px; border: none; background: #0288d1; color: #fff; font-weight: bold; }
+  button:hover { background: #0277bd; }
+  pre { background: #f4f4f4; padding: 10px; overflow-x: auto; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<h2>Загрузка фотографий на общий диск</h2>
+<div id="info">Вы загружаете фотографии в папку: <strong id="folderInfo"></strong></div>
+
+<input type="file" id="fileInput" multiple style="display:none"/>
+<button id="selectBtn">Выбрать фотографии</button>
+<button id="uploadBtn">Загрузить выбранные фото</button>
+
+<div id="preview"></div>
+<pre id="output"></pre>
+
+<script>
+const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; // ваш client_id
+const REDIRECT_URI = window.location.origin + window.location.pathname;
+
+let filesToUpload = [];
+
+// Чтение параметров из QR-кода (URL)
+const params = new URLSearchParams(window.location.search);
+const folderName = params.get('folder') || 'Фото';
+const subfolderName = params.get('subfolder') || 'Новая папка';
+const mainPath = 'Системы ТАУ - Общее';
+const uploadPath = `${mainPath}/${folderName}/${subfolderName}`;
+document.getElementById('folderInfo').textContent = uploadPath;
+
+function log(msg) {
+  const output = document.getElementById("output");
+  output.textContent += msg + "\n";
+}
+
+// Проверка токена в URL
+const hash = new URLSearchParams(window.location.hash.substring(1));
+let accessToken = null;
+
+if (hash.has("access_token")) {
+  accessToken = hash.get("access_token");
+  log("Авторизация успешна. Access token получен.");
+
+  // Выбор файлов
+  document.getElementById("selectBtn").onclick = () => {
+    document.getElementById("fileInput").click();
+  };
+
+  document.getElementById("fileInput").onchange = (event) => {
+    filesToUpload = Array.from(event.target.files);
+    const previewDiv = document.getElementById("preview");
+    previewDiv.innerHTML = "";
+    filesToUpload.forEach(file => {
+      const div = document.createElement("div");
+      div.className = "thumb";
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(file);
+      const p = document.createElement("p");
+      p.textContent = file.name;
+      div.appendChild(img);
+      div.appendChild(p);
+      previewDiv.appendChild(div);
+    });
+  };
+
+  // Загрузка файлов
+  document.getElementById("uploadBtn").onclick = async () => {
+    for (let file of filesToUpload) {
+      try {
+        const encodedFolderPath = encodeURIComponent(uploadPath);
+        const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedFolderPath}/${encodeURIComponent(file.name)}&overwrite=true`, {
+          method: "GET",
+          headers: { Authorization: `OAuth ${accessToken}` }
+        });
+        const uploadData = await uploadRes.json();
+        if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
+
+        const putRes = await fetch(uploadData.href, {
+          method: "PUT",
+          body: file
+        });
+        if (!putRes.ok) throw new Error("Ошибка загрузки файла");
+
+        log(`Файл "${file.name}" успешно загружен.`);
+      } catch (err) {
+        log(`Ошибка при загрузке "${file.name}": ${err.message}`);
+      }
+    }
+
+    // Очистка после загрузки
+    filesToUpload = [];
+    document.getElementById("preview").innerHTML = "";
+    document.getElementById("fileInput").value = "";
+  };
+
+} else {
+  // Редирект на авторизацию
+  const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=cloud_api:disk.read cloud_api:disk.write`;
+  window.location.href = authUrl;
+}
+</script>
+
+</body>
 </html>
-
-
-

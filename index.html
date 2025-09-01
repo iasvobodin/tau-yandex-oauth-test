@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -20,6 +19,7 @@
 
 <pre id="output"></pre>
 
+<button id="checkSharedBtn" style="display:none">Проверить Shared Folder ID</button>
 <button id="checkFolderBtn" style="display:none">Проверить / создать папку Фото</button>
 <input type="file" id="fileInput" multiple style="display:none"/>
 <button id="selectBtn" style="display:none">Выбрать фотографии</button>
@@ -31,6 +31,7 @@
 const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; // вставь свой client_id
 const REDIRECT_URI = window.location.origin + window.location.pathname;
 let filesToUpload = [];
+let sharedFolderId = null;
 
 function log(msg) {
   const output = document.getElementById("output");
@@ -46,24 +47,46 @@ if (hash.has("access_token")) {
   log("Авторизация успешна. Access token получен.");
 
   // Показываем кнопки управления диском
+  document.getElementById("checkSharedBtn").style.display = "inline-block";
   document.getElementById("checkFolderBtn").style.display = "inline-block";
   document.getElementById("selectBtn").style.display = "inline-block";
   document.getElementById("uploadBtn").style.display = "inline-block";
 
-  const folderPath = "/Общая/Система ТАУ/Фото";
-  const encodedFolderPath = encodeURIComponent(folderPath);
-
-  // 1. Проверка или создание папки Фото
-  document.getElementById("checkFolderBtn").onclick = async () => {
+  // 1. Проверка Shared Folder ID
+  document.getElementById("checkSharedBtn").onclick = async () => {
     try {
-      const res = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=${encodedFolderPath}`, {
+      const res = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=/Общая`, {
         method: "GET",
         headers: { Authorization: `OAuth ${accessToken}` }
       });
+      const data = await res.json();
+      if (data.type === "dir" && data.shared_folder_id) {
+        sharedFolderId = data.shared_folder_id;
+        log(`Shared Folder ID для "/Общая": ${sharedFolderId}`);
+      } else {
+        log("Не удалось получить shared_folder_id. Возможно, это не общий диск или нет доступа.");
+      }
+    } catch (err) {
+      log("Ошибка при получении shared_folder_id: " + err.message);
+    }
+  };
 
+  // 2. Проверка / создание папки Фото на общем диске
+  document.getElementById("checkFolderBtn").onclick = async () => {
+    if (!sharedFolderId) {
+      log("Сначала получите Shared Folder ID!");
+      return;
+    }
+    const folderPath = "Фото"; // путь внутри общего диска
+    const encodedFolderPath = encodeURIComponent(folderPath);
+    try {
+      const res = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=${encodedFolderPath}&shared_folder_id=${sharedFolderId}`, {
+        method: "GET",
+        headers: { Authorization: `OAuth ${accessToken}` }
+      });
       if (res.status === 404) {
         log(`Папка "${folderPath}" не найдена. Создаём...`);
-        const createRes = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=${encodedFolderPath}`, {
+        const createRes = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=${encodedFolderPath}&shared_folder_id=${sharedFolderId}`, {
           method: "PUT",
           headers: { Authorization: `OAuth ${accessToken}` }
         });
@@ -81,7 +104,7 @@ if (hash.has("access_token")) {
     }
   };
 
-  // 2. Выбор файлов
+  // 3. Выбор файлов
   document.getElementById("selectBtn").onclick = () => {
     document.getElementById("fileInput").click();
   };
@@ -103,11 +126,17 @@ if (hash.has("access_token")) {
     });
   };
 
-  // 3. Загрузка файлов в папку Фото
+  // 4. Загрузка файлов в папку Фото на общем диске
   document.getElementById("uploadBtn").onclick = async () => {
+    if (!sharedFolderId) {
+      log("Сначала получите Shared Folder ID!");
+      return;
+    }
+    const folderPath = "Фото";
+    const encodedFolderPath = encodeURIComponent(folderPath);
     for (let file of filesToUpload) {
       try {
-        const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources/upload?path=${encodedFolderPath}/${encodeURIComponent(file.name)}&overwrite=true`, {
+        const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources/upload?path=${encodedFolderPath}/${encodeURIComponent(file.name)}&overwrite=true&shared_folder_id=${sharedFolderId}`, {
           method: "GET",
           headers: { Authorization: `OAuth ${accessToken}` }
         });

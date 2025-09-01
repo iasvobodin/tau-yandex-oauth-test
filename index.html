@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Yandex OAuth Test</title>
+</head>
+<body>
+  <h2>Авторизация через Яндекс</h2>
+  <button id="login">Войти через Яндекс</button>
+  <pre id="output"></pre>
+
+  <script>
+    const CLIENT_ID = "твой_client_id"; // вставь сюда client_id от Яндекса
+    const REDIRECT_URI = window.location.origin + window.location.pathname;
+
+    // 1. Проверяем, не вернулся ли токен в URL после авторизации
+    const hash = new URLSearchParams(window.location.hash.substring(1));
+    if (hash.has("access_token")) {
+      document.getElementById("output").textContent =
+        "access_token: " + hash.get("access_token");
+    }
+
+    // 2. Кнопка для старта авторизации
+    document.getElementById("login").onclick = () => {
+      const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+      window.location.href = authUrl;
+    };
+  </script>
+</body>
+</html>

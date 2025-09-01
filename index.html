@@ -1,38 +1,84 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <title>Загрузка фото на Яндекс.Диск</title>
+<meta charset="UTF-8">
+<title>Загрузка на общий диск</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; }
+  h2 { color: #333; }
+  #preview { display: flex; flex-wrap: wrap; margin-top: 10px; }
+  .thumb { margin: 5px; border: 1px solid #ccc; padding: 5px; width: 100px; text-align: center; }
+  .thumb img { max-width: 90px; max-height: 90px; }
+  button { margin: 5px; padding: 10px 20px; cursor: pointer; }
+  pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
+</style>
 </head>
 <body>
-  <h2>Загрузка фото на Яндекс.Диск</h2>
-  <pre id="output"></pre>
-  <input type="file" id="fileInput" multiple style="display:none"/>
-  <button id="uploadBtn" style="display:none">Выбрать фотографии</button>
 
-  <script>
-    const CLIENT_ID = "4bc4d55d82f4403fa49256dc971508fd"; // вставь сюда client_id от Яндекс OAuth
-    const REDIRECT_URI = window.location.origin + window.location.pathname;
+<h2>Загрузка на общий диск Яндекс.Диска</h2>
 
-    // Начало OAuth авторизации
-    function startAuth() {
-      const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
-      window.location.href = authUrl;
-    }
+<div id="output"></div>
 
-    // Выводим сообщения в output
-    function log(msg) {
-      const output = document.getElementById("output");
-      output.textContent += msg + "\n";
-    }
+<input type="file" id="fileInput" multiple style="display:none"/>
+<button id="selectBtn" style="display:none">Выбрать фотографии</button>
+<button id="uploadBtn" style="display:none">Загрузить на диск</button>
 
-    // Загрузка файла на Яндекс.Диск
-    async function uploadFile(token, file) {
+<div id="preview"></div>
+
+<script>
+const CLIENT_ID = "4bc4d55d82f4403fa49256dc971508fd"; // вставь сюда client_id
+const REDIRECT_URI = window.location.origin + window.location.pathname;
+let filesToUpload = [];
+
+// Функция для логов
+function log(msg) {
+  const output = document.getElementById("output");
+  output.textContent += msg + "\n";
+}
+
+// Проверяем, есть ли access_token
+const hash = new URLSearchParams(window.location.hash.substring(1));
+let accessToken = null;
+
+if (hash.has("access_token")) {
+  accessToken = hash.get("access_token");
+  log("Авторизация успешна. Access token получен.");
+
+  // Показываем кнопки
+  document.getElementById("selectBtn").style.display = "inline-block";
+  document.getElementById("uploadBtn").style.display = "inline-block";
+
+  // Выбор файлов
+  document.getElementById("selectBtn").onclick = () => {
+    document.getElementById("fileInput").click();
+  };
+
+  document.getElementById("fileInput").onchange = (event) => {
+    filesToUpload = Array.from(event.target.files);
+    const previewDiv = document.getElementById("preview");
+    previewDiv.innerHTML = "";
+    filesToUpload.forEach(file => {
+      const div = document.createElement("div");
+      div.className = "thumb";
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(file);
+      const p = document.createElement("p");
+      p.textContent = file.name;
+      div.appendChild(img);
+      div.appendChild(p);
+      previewDiv.appendChild(div);
+    });
+  };
+
+  // Загрузка файлов
+  document.getElementById("uploadBtn").onclick = async () => {
+    for (let file of filesToUpload) {
       try {
-        // 1. Получаем ссылку для загрузки
-        const res1 = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodeURIComponent(file.name)}&overwrite=true`, {
+        // 1. Получаем ссылку для загрузки на общий диск
+        const path = `/Общий/${file.name}`; // путь на общем диске, можно изменить
+        const res1 = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources/upload?path=${encodeURIComponent(path)}&overwrite=true`, {
           method: "GET",
-          headers: { Authorization: `OAuth ${token}` }
+          headers: { Authorization: `OAuth ${accessToken}` }
         });
         const data1 = await res1.json();
         if (!data1.href) throw new Error("Не удалось получить ссылку для загрузки");
@@ -44,46 +90,22 @@
         });
         if (!res2.ok) throw new Error("Ошибка загрузки файла");
 
-        // 3. Получаем публичную ссылку
-        const res3 = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/publish?path=${encodeURIComponent(file.name)}`, {
-          method: "PUT",
-          headers: { Authorization: `OAuth ${token}` }
-        });
-        const data3 = await res3.json();
-
-        // 4. Формируем прямую ссылку
-        const link = `https://yadi.sk/d/${data3.path.split('/').pop()}`;
-        log(`Файл "${file.name}" загружен. Ссылка: ${link}`);
+        log(`Файл "${file.name}" успешно загружен на общий диск.`);
       } catch (err) {
-        log(`Ошибка: ${err.message}`);
+        log(`Ошибка при загрузке "${file.name}": ${err.message}`);
       }
     }
+    // Очистка после загрузки
+    filesToUpload = [];
+    document.getElementById("preview").innerHTML = "";
+    document.getElementById("fileInput").value = "";
+  };
 
-    // Проверяем, есть ли токен в URL
-    const hash = new URLSearchParams(window.location.hash.substring(1));
-    if (hash.has("access_token")) {
-      const token = hash.get("access_token");
-      log("access_token: " + token);
-
-      // Показываем кнопку и input
-      document.getElementById("uploadBtn").style.display = "inline-block";
-      document.getElementById("fileInput").style.display = "inline-block";
-
-      document.getElementById("uploadBtn").onclick = () => {
-        document.getElementById("fileInput").click();
-      };
-
-      document.getElementById("fileInput").onchange = async (event) => {
-        const files = event.target.files;
-        for (let file of files) {
-          await uploadFile(token, file);
-        }
-      };
-
-    } else {
-      // Если токена нет, сразу редиректим на авторизацию
-      startAuth();
-    }
-  </script>
+} else {
+  // Если токена нет, сразу редиректим на авторизацию
+  const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=cloud_api:disk.read cloud_api:disk.write`;
+  window.location.href = authUrl;
+}
+</script>
 </body>
 </html>

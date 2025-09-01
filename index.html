@@ -1,4 +1,4 @@
-<!-- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
@@ -128,15 +128,12 @@ if (hash.has("access_token")) {
 
   // 4. Загрузка файлов в папку Фото на общем диске
   document.getElementById("uploadBtn").onclick = async () => {
-    if (!sharedFolderId) {
-      log("Сначала получите Shared Folder ID!");
-      return;
-    }
-    const folderPath = "Фото";
+
+    const folderPath = "Системы ТАУ - Общее/Фото ТАУ контроль";
     const encodedFolderPath = encodeURIComponent(folderPath);
     for (let file of filesToUpload) {
       try {
-        const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources/upload?path=${encodedFolderPath}/${encodeURIComponent(file.name)}&overwrite=true&shared_folder_id=${sharedFolderId}`, {
+        const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedFolderPath}/${encodeURIComponent(file.name)}&overwrite=true&shared_folder_id=${sharedFolderId}`, {
           method: "GET",
           headers: { Authorization: `OAuth ${accessToken}` }
         });
@@ -168,97 +165,7 @@ if (hash.has("access_token")) {
 }
 </script>
 </body>
-</html> -->
-
-
-
-
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<title>Проверка ресурсов на Яндекс.Диске</title>
-<style>
-  body { font-family: Arial, sans-serif; padding: 20px; }
-  button { margin: 5px; padding: 10px 20px; cursor: pointer; }
-  #output { white-space: pre-wrap; background: #f4f4f4; padding: 10px; }
-  #preview { display: flex; flex-wrap: wrap; margin-top: 10px; }
-  .thumb { margin: 5px; border: 1px solid #ccc; padding: 5px; width: 100px; text-align: center; }
-  .thumb img { max-width: 90px; max-height: 90px; }
-</style>
-</head>
-<body>
-
-<h2>Проверка ресурсов на Яндекс.Диске</h2>
-
-<input type="text" id="pathInput" placeholder="Введите путь, например Система ТАУ/Фото" size="50"/>
-<button id="checkBtn" style="display:none">Проверить путь</button>
-
-<div id="output"></div>
-<div id="preview"></div>
-
-<script>
-const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; // вставьте свой client_id
-const REDIRECT_URI = window.location.origin + window.location.pathname;
-let accessToken = null;
-
-function log(msg) {
-  document.getElementById("output").textContent += msg + "\n";
-}
-
-// проверка токена в URL
-const hash = new URLSearchParams(window.location.hash.substring(1));
-if (hash.has("access_token")) {
-  accessToken = hash.get("access_token");
-  log("Авторизация успешна. Access token получен.");
-  document.getElementById("checkBtn").style.display = "inline-block";
-} else {
-  // редирект на авторизацию
-  const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=cloud_api:disk.read cloud_api:disk.write`;
-  window.location.href = authUrl;
-}
-
-// проверка пути
-document.getElementById("checkBtn").onclick = async () => {
-  const path = document.getElementById("pathInput").value.trim();
-  if (!path) {
-    alert("Введите путь к папке");
-    return;
-  }
-
-  document.getElementById("output").textContent = "";
-  document.getElementById("preview").innerHTML = "";
-
-  try {
-    const res = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=${encodeURIComponent(path)}&limit=50`, {
-      headers: { Authorization: `OAuth ${accessToken}` }
-    });
-    const data = await res.json();
-    log(JSON.stringify(data, null, 2));
-
-    // показываем превью файлов, если есть
-    if (data.items && Array.isArray(data.items)) {
-      const previewDiv = document.getElementById("preview");
-      data.items.forEach(item => {
-        if (item.type === "file" && item.mime_type && item.mime_type.startsWith("image/")) {
-          const div = document.createElement("div");
-          div.className = "thumb";
-          const img = document.createElement("img");
-          img.src = item.preview || item.file; // preview если есть
-          const p = document.createElement("p");
-          p.textContent = item.name;
-          div.appendChild(img);
-          div.appendChild(p);
-          previewDiv.appendChild(div);
-        }
-      });
-    }
-
-  } catch (err) {
-    log("Ошибка при проверке ресурса: " + err.message);
-  }
-};
-</script>
-
-</body>
 </html>
+
+
+

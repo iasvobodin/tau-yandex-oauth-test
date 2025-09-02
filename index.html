@@ -1,444 +1,233 @@
-<!-- <!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<title>Загрузка на общий диск</title>
-<style>
-  body { font-family: Arial, sans-serif; padding: 20px; }
-  h2 { color: #333; }
-  #preview { display: flex; flex-wrap: wrap; margin-top: 10px; }
-  .thumb { margin: 5px; border: 1px solid #ccc; padding: 5px; width: 100px; text-align: center; }
-  .thumb img { max-width: 90px; max-height: 90px; }
-  button { margin: 5px; padding: 10px 20px; cursor: pointer; }
-  pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
-</style>
-</head>
-<body>
-
-<h2>Управление папкой Фото на общем диске</h2>
-
-<pre id="output"></pre>
-
-<button id="checkSharedBtn" style="display:none">Проверить Shared Folder ID</button>
-<button id="checkFolderBtn" style="display:none">Проверить / создать папку Фото</button>
-<input type="file" id="fileInput" multiple style="display:none"/>
-<button id="selectBtn" style="display:none">Выбрать фотографии</button>
-<button id="uploadBtn" style="display:none">Загрузить выбранные фото</button>
-
-<div id="preview"></div>
-
-<script>
-const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; // вставь свой client_id
-const REDIRECT_URI = window.location.origin + window.location.pathname;
-let filesToUpload = [];
-let sharedFolderId = null;
-
-function log(msg) {
-  const output = document.getElementById("output");
-  output.textContent += msg + "\n";
-}
-
-// Проверка токена в URL
-const hash = new URLSearchParams(window.location.hash.substring(1));
-let accessToken = null;
-
-if (hash.has("access_token")) {
-  accessToken = hash.get("access_token");
-  log("Авторизация успешна. Access token получен.");
-
-  // Показываем кнопки управления диском
-  document.getElementById("checkSharedBtn").style.display = "inline-block";
-  document.getElementById("checkFolderBtn").style.display = "inline-block";
-  document.getElementById("selectBtn").style.display = "inline-block";
-  document.getElementById("uploadBtn").style.display = "inline-block";
-
-  // 1. Проверка Shared Folder ID
-  document.getElementById("checkSharedBtn").onclick = async () => {
-    try {
-      const res = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=/Общая`, {
-        method: "GET",
-        headers: { Authorization: `OAuth ${accessToken}` }
-      });
-      const data = await res.json();
-      if (data.type === "dir" && data.shared_folder_id) {
-        sharedFolderId = data.shared_folder_id;
-        log(`Shared Folder ID для "/Общая": ${sharedFolderId}`);
-      } else {
-        log("Не удалось получить shared_folder_id. Возможно, это не общий диск или нет доступа.");
-      }
-    } catch (err) {
-      log("Ошибка при получении shared_folder_id: " + err.message);
-    }
-  };
-
-  // 2. Проверка / создание папки Фото на общем диске
-  document.getElementById("checkFolderBtn").onclick = async () => {
-    if (!sharedFolderId) {
-      log("Сначала получите Shared Folder ID!");
-      return;
-    }
-    const folderPath = "Фото"; // путь внутри общего диска
-    const encodedFolderPath = encodeURIComponent(folderPath);
-    try {
-      const res = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=${encodedFolderPath}&shared_folder_id=${sharedFolderId}`, {
-        method: "GET",
-        headers: { Authorization: `OAuth ${accessToken}` }
-      });
-      if (res.status === 404) {
-        log(`Папка "${folderPath}" не найдена. Создаём...`);
-        const createRes = await fetch(`https://cloud-api.yandex.net/v1/disk/virtual-disks/resources?path=${encodedFolderPath}&shared_folder_id=${sharedFolderId}`, {
-          method: "PUT",
-          headers: { Authorization: `OAuth ${accessToken}` }
-        });
-        if (createRes.ok) {
-          log(`Папка "${folderPath}" успешно создана.`);
-        } else {
-          log(`Ошибка при создании папки: ${createRes.status}`);
-        }
-      } else {
-        const data = await res.json();
-        log(`Папка "${folderPath}" уже существует:\n` + JSON.stringify(data, null, 2));
-      }
-    } catch (err) {
-      log("Ошибка при проверке/создании папки: " + err.message);
-    }
-  };
-
-  // 3. Выбор файлов
-  document.getElementById("selectBtn").onclick = () => {
-    document.getElementById("fileInput").click();
-  };
-
-  document.getElementById("fileInput").onchange = (event) => {
-    filesToUpload = Array.from(event.target.files);
-    const previewDiv = document.getElementById("preview");
-    previewDiv.innerHTML = "";
-    filesToUpload.forEach(file => {
-      const div = document.createElement("div");
-      div.className = "thumb";
-      const img = document.createElement("img");
-      img.src = URL.createObjectURL(file);
-      const p = document.createElement("p");
-      p.textContent = file.name;
-      div.appendChild(img);
-      div.appendChild(p);
-      previewDiv.appendChild(div);
-    });
-  };
-
-  // 4. Загрузка файлов в папку Фото на общем диске
-  document.getElementById("uploadBtn").onclick = async () => {
-
-    const folderPath = "Системы ТАУ - Общее/Фото ТАУ контроль";
-    const encodedFolderPath = encodeURIComponent(folderPath);
-    for (let file of filesToUpload) {
-      try {
-        const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedFolderPath}/${encodeURIComponent(file.name)}&overwrite=true&shared_folder_id=${sharedFolderId}`, {
-          method: "GET",
-          headers: { Authorization: `OAuth ${accessToken}` }
-        });
-        const uploadData = await uploadRes.json();
-        if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
-
-        const putRes = await fetch(uploadData.href, {
-          method: "PUT",
-          body: file
-        });
-        if (!putRes.ok) throw new Error("Ошибка загрузки файла");
-
-        log(`Файл "${file.name}" успешно загружен.`);
-      } catch (err) {
-        log(`Ошибка при загрузке "${file.name}": ${err.message}`);
-      }
-    }
-
-    // Очистка после загрузки
-    filesToUpload = [];
-    document.getElementById("preview").innerHTML = "";
-    document.getElementById("fileInput").value = "";
-  };
-
-} else {
-  // Если токена нет, редирект на OAuth
-  const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=cloud_api:disk.read cloud_api:disk.write`;
-  window.location.href = authUrl;
-}
-</script>
-</body>
-</html> -->
-
-
-<!-- 
 <!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
 <title>Загрузка на общий диск</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  body { font-family: Arial, sans-serif; padding: 20px; background: #f9f9f9; }
-  h2 { color: #333; }
-  #info { background: #e0f7fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-  #preview { display: flex; flex-wrap: wrap; margin-top: 10px; }
-  .thumb { margin: 5px; border: 1px solid #ccc; padding: 5px; width: 120px; text-align: center; border-radius: 6px; background: #fff; }
-  .thumb img { max-width: 100px; max-height: 100px; border-radius: 4px; }
-  button { margin: 5px; padding: 10px 20px; cursor: pointer; border-radius: 5px; border: none; background: #0288d1; color: #fff; font-weight: bold; }
-  button:hover { background: #0277bd; }
-  pre { background: #f4f4f4; padding: 10px; overflow-x: auto; border-radius: 6px; }
-</style>
-</head>
-<body>
+  body {
+    font-family: Arial, sans-serif;
+    padding: 15px;
+    margin: 0;
+    background: #fafafa;
+    color: #333;
+  }
 
-<h2>Загрузка фотографий на общий диск</h2>
-<div id="info">Вы загружаете фотографии в папку: <strong id="folderInfo"></strong></div>
+  h2 {
+    font-size: 1.2rem;
+    margin-bottom: 15px;
+    text-align: center;
+  }
 
-<input type="file" id="fileInput" multiple style="display:none"/>
-<button id="selectBtn">Выбрать фотографии</button>
-<button id="uploadBtn">Загрузить выбранные фото</button>
+  #controls {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 15px;
+  }
 
-<div id="preview"></div>
-<pre id="output"></pre>
+  button {
+    padding: 10px 16px;
+    cursor: pointer;
+    border: none;
+    border-radius: 6px;
+    background: #4a90e2;
+    color: white;
+    font-size: 0.9rem;
+    flex: 1 1 auto;
+    max-width: 220px;
+  }
 
-<script>
-const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; // ваш client_id
-const REDIRECT_URI = window.location.origin + window.location.pathname;
+  button:hover {
+    background: #357abd;
+  }
 
-let filesToUpload = [];
+  #preview {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 10px;
+  }
 
-// Чтение параметров из QR-кода (URL)
-const params = new URLSearchParams(window.location.search);
-const folderName = params.get('folder') || 'Фото';
-const subfolderName = params.get('subfolder') || 'Новая папка';
-const mainPath = 'Системы ТАУ - Общее';
-const uploadPath = `${mainPath}/${folderName}/${subfolderName}`;
-document.getElementById('folderInfo').textContent = uploadPath;
+  .thumb {
+    margin: 5px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 5px;
+    width: 90px;
+    text-align: center;
+    background: white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  }
 
-function log(msg) {
-  const output = document.getElementById("output");
-  output.textContent += msg + "\n";
-}
+  .thumb img {
+    max-width: 80px;
+    max-height: 80px;
+    border-radius: 4px;
+  }
 
-// Проверка токена в URL
-const hash = new URLSearchParams(window.location.hash.substring(1));
-let accessToken = null;
+  .thumb p {
+    font-size: 0.7rem;
+    margin: 4px 0 0;
+    word-break: break-word;
+  }
 
-if (hash.has("access_token")) {
-  accessToken = hash.get("access_token");
-  log("Авторизация успешна. Access token получен.");
+  #output {
+    background: #f4f4f4;
+    padding: 10px;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    border-radius: 6px;
+    margin-top: 20px;
+  }
 
-  // Выбор файлов
-  document.getElementById("selectBtn").onclick = () => {
-    document.getElementById("fileInput").click();
-  };
-
-  document.getElementById("fileInput").onchange = (event) => {
-    filesToUpload = Array.from(event.target.files);
-    const previewDiv = document.getElementById("preview");
-    previewDiv.innerHTML = "";
-    filesToUpload.forEach(file => {
-      const div = document.createElement("div");
-      div.className = "thumb";
-      const img = document.createElement("img");
-      img.src = URL.createObjectURL(file);
-      const p = document.createElement("p");
-      p.textContent = file.name;
-      div.appendChild(img);
-      div.appendChild(p);
-      previewDiv.appendChild(div);
-    });
-  };
-
-  // Загрузка файлов
-  document.getElementById("uploadBtn").onclick = async () => {
-    for (let file of filesToUpload) {
-      try {
-        const encodedFolderPath = encodeURIComponent(uploadPath);
-        const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedFolderPath}/${encodeURIComponent(file.name)}&overwrite=true`, {
-          method: "GET",
-          headers: { Authorization: `OAuth ${accessToken}` }
-        });
-        const uploadData = await uploadRes.json();
-        if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
-
-        const putRes = await fetch(uploadData.href, {
-          method: "PUT",
-          body: file
-        });
-        if (!putRes.ok) throw new Error("Ошибка загрузки файла");
-
-        log(`Файл "${file.name}" успешно загружен.`);
-      } catch (err) {
-        log(`Ошибка при загрузке "${file.name}": ${err.message}`);
-      }
+  @media (max-width: 600px) {
+    h2 {
+      font-size: 1rem;
     }
-
-    // Очистка после загрузки
-    filesToUpload = [];
-    document.getElementById("preview").innerHTML = "";
-    document.getElementById("fileInput").value = "";
-  };
-
-} else {
-  // Редирект на авторизацию
-  const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=cloud_api:disk.read cloud_api:disk.write`;
-  window.location.href = authUrl;
-}
-</script>
-
-</body>
-</html> -->
-
-
-
-
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<title>Загрузка на общий диск</title>
-<style>
-  body { font-family: Arial, sans-serif; padding: 20px; }
-  h2 { color: #333; }
-  #preview { display: flex; flex-wrap: wrap; margin-top: 10px; }
-  .thumb { margin: 5px; border: 1px solid #ccc; padding: 5px; width: 100px; text-align: center; }
-  .thumb img { max-width: 90px; max-height: 90px; }
-  button { margin: 5px; padding: 10px 20px; cursor: pointer; }
-  pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
+    button {
+      font-size: 0.8rem;
+      padding: 8px 12px;
+    }
+    .thumb {
+      width: 70px;
+    }
+    .thumb img {
+      max-width: 60px;
+      max-height: 60px;
+    }
+  }
 </style>
 </head>
 <body>
 
 <h2 id="info">Вы загружаете фотографии на общий диск</h2>
 
-<pre id="output"></pre>
-
-<input type="file" id="fileInput" multiple style="display:none"/>
-<button id="selectBtn">Выбрать фотографии</button>
-<button id="uploadBtn">Загрузить выбранные фото</button>
+<div id="controls">
+  <input type="file" id="fileInput" multiple style="display:none"/>
+  <button id="selectBtn">Выбрать фотографии</button>
+  <button id="uploadBtn">Загрузить выбранные фото</button>
+</div>
 
 <div id="preview"></div>
 
+<pre id="output"></pre>
+
 <script>
-const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; // вставь свой client_id
-const REDIRECT_URI = window.location.origin + window.location.pathname;
-let filesToUpload = [];
+  // --- твой рабочий скрипт без изменений ---
+  const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; // вставь свой client_id
+  const REDIRECT_URI = window.location.origin + window.location.pathname;
+  let filesToUpload = [];
 
-// Получаем параметры folder/subfolder из query
-let urlParams = new URLSearchParams(window.location.search);
-let folderName = urlParams.get('folder') || 'Фото';
-let subfolderName = urlParams.get('subfolder') || 'Новая папка';
+  let urlParams = new URLSearchParams(window.location.search);
+  let folderName = urlParams.get('folder') || 'Фото';
+  let subfolderName = urlParams.get('subfolder') || 'Новая папка';
 
-// Проверка токена в URL hash
-const hash = new URLSearchParams(window.location.hash.substring(1));
-let accessToken = hash.get("access_token");
+  const hash = new URLSearchParams(window.location.hash.substring(1));
+  let accessToken = hash.get("access_token");
 
-if (!accessToken) {
-  // Если нет токена, формируем state с папками
-  const state = encodeURIComponent(JSON.stringify({ folder: folderName, subfolder: subfolderName }));
-  const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=cloud_api:disk.read cloud_api:disk.write&state=${state}`;
-  window.location.href = authUrl;
-} else {
-  // После авторизации извлекаем state
-  let stateData = {};
-  try {
-    stateData = JSON.parse(decodeURIComponent(hash.get('state') || '{}'));
-  } catch(e){}
-  folderName = stateData.folder || folderName;
-  subfolderName = stateData.subfolder || subfolderName;
-
-  document.getElementById("info").textContent = `Вы загружаете фотографии в папку "${folderName}/${subfolderName}"`;
-
-  const output = document.getElementById("output");
-  function log(msg) { output.textContent += msg + "\n"; }
-
-  log("Авторизация успешна. Access token получен.");
-
-  // Кнопки выбора файлов
-  const fileInput = document.getElementById("fileInput");
-  document.getElementById("selectBtn").onclick = () => fileInput.click();
-
-  fileInput.onchange = (event) => {
-    filesToUpload = Array.from(event.target.files);
-    const previewDiv = document.getElementById("preview");
-    previewDiv.innerHTML = "";
-    filesToUpload.forEach(file => {
-      const div = document.createElement("div");
-      div.className = "thumb";
-      const img = document.createElement("img");
-      img.src = URL.createObjectURL(file);
-      const p = document.createElement("p");
-      p.textContent = file.name;
-      div.appendChild(img);
-      div.appendChild(p);
-      previewDiv.appendChild(div);
-    });
-  };
-
-  // Функция для проверки/создания папки
-  async function ensureFolderExists(path) {
-    const encodedPath = encodeURIComponent(path);
+  if (!accessToken) {
+    const state = encodeURIComponent(JSON.stringify({ folder: folderName, subfolder: subfolderName }));
+    const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=cloud_api:disk.read cloud_api:disk.write&state=${state}`;
+    window.location.href = authUrl;
+  } else {
+    let stateData = {};
     try {
-      const res = await fetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodedPath}`, {
-        method: "GET",
-        headers: { Authorization: `OAuth ${accessToken}` }
+      stateData = JSON.parse(decodeURIComponent(hash.get('state') || '{}'));
+    } catch(e){}
+    folderName = stateData.folder || folderName;
+    subfolderName = stateData.subfolder || subfolderName;
+
+    document.getElementById("info").textContent = `Вы загружаете фотографии в папку "${folderName}/${subfolderName}"`;
+
+    const output = document.getElementById("output");
+    function log(msg) { output.textContent += msg + "\n"; }
+
+    log("Авторизация успешна. Access token получен.");
+
+    const fileInput = document.getElementById("fileInput");
+    document.getElementById("selectBtn").onclick = () => fileInput.click();
+
+    fileInput.onchange = (event) => {
+      filesToUpload = Array.from(event.target.files);
+      const previewDiv = document.getElementById("preview");
+      previewDiv.innerHTML = "";
+      filesToUpload.forEach(file => {
+        const div = document.createElement("div");
+        div.className = "thumb";
+        const img = document.createElement("img");
+        img.src = URL.createObjectURL(file);
+        const p = document.createElement("p");
+        p.textContent = file.name;
+        div.appendChild(img);
+        div.appendChild(p);
+        previewDiv.appendChild(div);
       });
-      if (res.status === 404) {
-        log(`Папка "${path}" не найдена. Создаём...`);
-        const createRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodedPath}`, {
-          method: "PUT",
-          headers: { Authorization: `OAuth ${accessToken}` }
-        });
-        if (!createRes.ok) throw new Error(`Ошибка создания папки: ${createRes.status}`);
-        log(`Папка "${path}" успешно создана.`);
-      } else {
-        log(`Папка "${path}" уже существует.`);
-      }
-    } catch (err) {
-      log(`Ошибка при проверке/создании папки "${path}": ${err.message}`);
-      throw err;
-    }
-  }
+    };
 
-  // Кнопка загрузки файлов
-  document.getElementById("uploadBtn").onclick = async () => {
-    const baseFolder = `Системы ТАУ - Общее/Фото ТАУ контроль/${folderName}`;
-    const subFolder = `${baseFolder}/${subfolderName}`;
-
-    try {
-      await ensureFolderExists(baseFolder);
-      await ensureFolderExists(subFolder);
-    } catch(e) {
-      log("Не удалось подготовить папки. Загрузка отменена.");
-      return;
-    }
-
-    const encodedSubFolder = encodeURIComponent(subFolder);
-
-    for (let file of filesToUpload) {
+    async function ensureFolderExists(path) {
+      const encodedPath = encodeURIComponent(path);
       try {
-        // Получаем URL для загрузки
-        const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedSubFolder}/${encodeURIComponent(file.name)}&overwrite=true`, {
+        const res = await fetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodedPath}`, {
           method: "GET",
           headers: { Authorization: `OAuth ${accessToken}` }
         });
-        const uploadData = await uploadRes.json();
-        if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
-
-        // Загружаем файл
-        const putRes = await fetch(uploadData.href, { method: "PUT", body: file });
-        if (!putRes.ok) throw new Error("Ошибка загрузки файла");
-
-        log(`Файл "${file.name}" успешно загружен в "${folderName}/${subfolderName}".`);
+        if (res.status === 404) {
+          log(`Папка "${path}" не найдена. Создаём...`);
+          const createRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodedPath}`, {
+            method: "PUT",
+            headers: { Authorization: `OAuth ${accessToken}` }
+          });
+          if (!createRes.ok) throw new Error(`Ошибка создания папки: ${createRes.status}`);
+          log(`Папка "${path}" успешно создана.`);
+        } else {
+          log(`Папка "${path}" уже существует.`);
+        }
       } catch (err) {
-        log(`Ошибка при загрузке "${file.name}": ${err.message}`);
+        log(`Ошибка при проверке/создании папки "${path}": ${err.message}`);
+        throw err;
       }
     }
 
-    // Очистка после загрузки
-    filesToUpload = [];
-    document.getElementById("preview").innerHTML = "";
-    fileInput.value = "";
-  };
-}
+    document.getElementById("uploadBtn").onclick = async () => {
+      const baseFolder = `Системы ТАУ - Общее/Фото ТАУ контроль/${folderName}`;
+      const subFolder = `${baseFolder}/${subfolderName}`;
+
+      try {
+        await ensureFolderExists(baseFolder);
+        await ensureFolderExists(subFolder);
+      } catch(e) {
+        log("Не удалось подготовить папки. Загрузка отменена.");
+        return;
+      }
+
+      const encodedSubFolder = encodeURIComponent(subFolder);
+
+      for (let file of filesToUpload) {
+        try {
+          const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedSubFolder}/${encodeURIComponent(file.name)}&overwrite=true`, {
+            method: "GET",
+            headers: { Authorization: `OAuth ${accessToken}` }
+          });
+          const uploadData = await uploadRes.json();
+          if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
+
+          const putRes = await fetch(uploadData.href, { method: "PUT", body: file });
+          if (!putRes.ok) throw new Error("Ошибка загрузки файла");
+
+          log(`Файл "${file.name}" успешно загружен в "${folderName}/${subfolderName}".`);
+        } catch (err) {
+          log(`Ошибка при загрузке "${file.name}": ${err.message}`);
+        }
+      }
+
+      filesToUpload = [];
+      document.getElementById("preview").innerHTML = "";
+      fileInput.value = "";
+    };
+  }
 </script>
 </body>
 </html>

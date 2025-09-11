@@ -45,61 +45,62 @@
 
   #preview {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 15px;
     margin-top: 10px;
   }
 
   .thumb {
-    display: grid;
-    grid-template-columns: 100px 1fr 30px;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 10px;
     border: 1px solid #ccc;
-    border-radius: 6px;
-    padding: 5px 10px;
+    border-radius: 8px;
+    padding: 10px;
     background: white;
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
   }
 
   .thumb img {
-    max-width: 90px;
-    max-height: 90px;
-    border-radius: 4px;
+    width: 180px;
+    height: auto;
+    border-radius: 6px;
+    margin-bottom: 8px;
   }
 
-  .thumb p {
-    font-size: 0.8rem;
-    margin: 0 0 4px 0;
+  .file-info {
+    font-size: 0.85rem;
+    text-align: center;
+    margin-bottom: 6px;
     word-break: break-word;
   }
 
-  .progress {
+  .progress-container {
     width: 100%;
-    height: 6px;
     background: #eee;
-    border-radius: 3px;
+    border-radius: 6px;
     overflow: hidden;
-    margin-top: 4px;
+    height: 8px;
+    margin-bottom: 6px;
   }
 
   .progress-bar {
     height: 100%;
     width: 0%;
     background: #4a90e2;
-    transition: width 0.2s;
+    transition: width 0.2s ease;
   }
 
   .status {
-    font-size: 1.2rem;
-    color: #ccc;
+    font-size: 0.85rem;
+    font-weight: bold;
+    text-align: center;
   }
-  .status.success {
-    color: green;
-  }
-  .status.error {
-    color: red;
-  }
+
+  .status.waiting { color: #888; }
+  .status.uploading { color: #e69500; }
+  .status.success { color: #2d9d2d; }
+  .status.error { color: #d93025; }
 
   #output {
     background: #f4f4f4;
@@ -109,23 +110,6 @@
     white-space: pre-wrap;
     border-radius: 6px;
     margin-top: 20px;
-  }
-
-  @media (max-width: 600px) {
-    h2 {
-      font-size: 1rem;
-    }
-    button {
-      font-size: 0.8rem;
-      padding: 8px 12px;
-    }
-    .thumb {
-      grid-template-columns: 70px 1fr 30px;
-    }
-    .thumb img {
-      max-width: 60px;
-      max-height: 60px;
-    }
   }
 </style>
 </head>
@@ -144,184 +128,162 @@
 <pre id="output"></pre>
 
 <script>
-  const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2";
+  const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; 
   const REDIRECT_URI = window.location.origin + window.location.pathname;
   let filesToUpload = [];
 
-  // сначала читаем параметры из query (если они были до редиректа)
   let urlParams = new URLSearchParams(window.location.search);
   let folderName = urlParams.get('folder') || 'Фото';
   let subfolderName = urlParams.get('subfolder') || 'Новая папка';
 
-  // читаем хэш (куда OAuth вернёт access_token и state)
   const hash = new URLSearchParams(window.location.hash.substring(1));
-  const accessTokenFromHash = hash.get("access_token");
+  let accessToken = hash.get("access_token");
 
-  // если токен пришёл через URL (редирект OAuth), то:
-  if (accessTokenFromHash) {
-    // состояние может быть в state (мы туда передавали folder/subfolder)
-    let stateData = {};
-    try {
-      stateData = JSON.parse(decodeURIComponent(hash.get('state') || '{}'));
-    } catch (e) {
-      // ignore
-    }
-
-    // восстановим folder/subfolder из state (если там есть), иначе используем уже прочитанные из query
-    folderName = stateData.folder || folderName;
-    subfolderName = stateData.subfolder || subfolderName;
-
-    // сохраняем токен в sessionStorage
-    sessionStorage.setItem("yandex_token", accessTokenFromHash);
-
-    // восстановим параметры в адресной строке (чтобы ?folder=...&subfolder=... остались видны)
-    const newSearch = new URLSearchParams(window.location.search);
-    newSearch.set('folder', folderName);
-    newSearch.set('subfolder', subfolderName);
-
-    history.replaceState(null, "", window.location.pathname + "?" + newSearch.toString());
-    // теперь hash (с access_token) удалён из адресной строки и folder/subfolder в query
-  }
-
-  // достаём токен из sessionStorage
-  let accessToken = sessionStorage.getItem("yandex_token");
-
-  // если токена нет — направляем на OAuth
   if (!accessToken) {
     const state = encodeURIComponent(JSON.stringify({ folder: folderName, subfolder: subfolderName }));
     const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=cloud_api:disk.read cloud_api:disk.write&state=${state}`;
     window.location.href = authUrl;
-  }
-
-  // ---- UI ----
-  document.getElementById("info").textContent = `Вы загружаете фотографии в папку "${folderName}"`;
-
-  const output = document.getElementById("output");
-  function log(msg) { output.textContent += msg + "\n"; }
-
-  log("Авторизация успешна. Access token получен.");
-
-  const fileInput = document.getElementById("fileInput");
-  document.getElementById("selectBtn").onclick = () => fileInput.click();
-
-  fileInput.onchange = (event) => {
-    filesToUpload = Array.from(event.target.files);
-    const previewDiv = document.getElementById("preview");
-    previewDiv.innerHTML = "";
-    filesToUpload.forEach((file, idx) => {
-      const div = document.createElement("div");
-      div.className = "thumb";
-      div.dataset.index = idx;
-
-      const img = document.createElement("img");
-      img.src = URL.createObjectURL(file);
-
-      const infoDiv = document.createElement("div");
-      const p = document.createElement("p");
-      p.textContent = file.name;
-      const progress = document.createElement("div");
-      progress.className = "progress";
-      const bar = document.createElement("div");
-      bar.className = "progress-bar";
-      progress.appendChild(bar);
-      infoDiv.appendChild(p);
-      infoDiv.appendChild(progress);
-
-      const status = document.createElement("div");
-      status.className = "status";
-      status.textContent = "…";
-
-      div.appendChild(img);
-      div.appendChild(infoDiv);
-      div.appendChild(status);
-
-      previewDiv.appendChild(div);
-    });
-  };
-
-  async function ensureFolderExists(path) {
-    const encodedPath = encodeURIComponent(path);
+  } else {
+    let stateData = {};
     try {
+      stateData = JSON.parse(decodeURIComponent(hash.get('state') || '{}'));
+    } catch(e){}
+    folderName = stateData.folder || folderName;
+    subfolderName = stateData.subfolder || subfolderName;
+
+    document.getElementById("info").textContent = `Вы загружаете файлы в папку "${folderName}" под именем "${subfolderName}-***"`;
+
+    const output = document.getElementById("output");
+    function log(msg) { output.textContent += msg + "\n"; }
+
+    const fileInput = document.getElementById("fileInput");
+    document.getElementById("selectBtn").onclick = () => fileInput.click();
+
+    fileInput.onchange = (event) => {
+      filesToUpload = Array.from(event.target.files);
+      const previewDiv = document.getElementById("preview");
+      previewDiv.innerHTML = "";
+      filesToUpload.forEach(file => {
+        const div = document.createElement("div");
+        div.className = "thumb";
+
+        const img = document.createElement("img");
+        img.src = URL.createObjectURL(file);
+
+        const infoDiv = document.createElement("div");
+        infoDiv.className = "file-info";
+        infoDiv.textContent = file.name;
+
+        const progressContainer = document.createElement("div");
+        progressContainer.className = "progress-container";
+        const progressBar = document.createElement("div");
+        progressBar.className = "progress-bar";
+        progressContainer.appendChild(progressBar);
+
+        const statusDiv = document.createElement("div");
+        statusDiv.className = "status waiting";
+        statusDiv.textContent = "⏳ Ожидает";
+
+        div.appendChild(img);
+        div.appendChild(infoDiv);
+        div.appendChild(progressContainer);
+        div.appendChild(statusDiv);
+        previewDiv.appendChild(div);
+
+        file._statusEl = statusDiv;
+        file._progressEl = progressBar;
+      });
+    };
+
+    async function ensureFolderExists(path) {
+      const encodedPath = encodeURIComponent(path);
       const res = await fetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodedPath}`, {
         method: "GET",
         headers: { Authorization: `OAuth ${accessToken}` }
       });
       if (res.status === 404) {
-        log(`Папка "${path}" не найдена. Создаём...`);
         const createRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodedPath}`, {
           method: "PUT",
           headers: { Authorization: `OAuth ${accessToken}` }
         });
         if (!createRes.ok) throw new Error(`Ошибка создания папки: ${createRes.status}`);
-        log(`Папка "${path}" успешно создана.`);
       }
-    } catch (err) {
-      log(`Ошибка при проверке/создании папки "${path}": ${err.message}`);
-      throw err;
-    }
-  }
-
-  document.getElementById("uploadBtn").onclick = async () => {
-    if (!filesToUpload.length) return;
-
-    const baseFolder = `Системы ТАУ - Общее/Фото ТАУ контроль/${folderName}`;
-
-    try {
-      await ensureFolderExists(baseFolder);
-    } catch(e) {
-      log("Не удалось подготовить папку. Загрузка отменена.");
-      return;
     }
 
-    for (let i = 0; i < filesToUpload.length; i++) {
-      const file = filesToUpload[i];
-      const ext = file.name.includes(".") ? file.name.substring(file.name.lastIndexOf(".")) : "";
-      const randomSuffix = Math.random().toString(36).substring(2, 5);
-      const newFileName = `${subfolderName}-${randomSuffix}${ext}`;
-
-      const encodedPath = encodeURIComponent(`${baseFolder}/${newFileName}`);
-
-      const thumb = document.querySelector(`.thumb[data-index="${i}"]`);
-      const bar = thumb.querySelector(".progress-bar");
-      const status = thumb.querySelector(".status");
+    document.getElementById("uploadBtn").onclick = async () => {
+      const baseFolder = `Системы ТАУ - Общее/Фото ТАУ контроль/${folderName}`;
 
       try {
-        const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedPath}&overwrite=true`, {
-          method: "GET",
-          headers: { Authorization: `OAuth ${accessToken}` }
-        });
-        const uploadData = await uploadRes.json();
-        if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
-
-        // Загружаем файл с прогрессом
-        await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open("PUT", uploadData.href, true);
-          xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable) {
-              const percent = (e.loaded / e.total) * 100;
-              bar.style.width = percent + "%";
-            }
-          };
-          xhr.onload = () => xhr.status === 201 || xhr.status === 200 ? resolve() : reject(new Error("Ошибка загрузки"));
-          xhr.onerror = () => reject(new Error("Ошибка сети"));
-          xhr.send(file);
-        });
-
-        status.textContent = "✓";
-        status.classList.add("success");
-        log(`Файл "${newFileName}" успешно загружен.`);
-
-      } catch (err) {
-        status.textContent = "✗";
-        status.classList.add("error");
-        log(`Ошибка при загрузке "${file.name}": ${err.message}`);
+        await ensureFolderExists(baseFolder);
+      } catch(e) {
+        log("Не удалось подготовить папку. Загрузка отменена.");
+        return;
       }
-    }
 
-    filesToUpload = [];
-    fileInput.value = "";
-  };
+      const encodedBaseFolder = encodeURIComponent(baseFolder);
+
+      function getRandomSuffix(length = 3) {
+        const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        let result = "";
+        for (let i = 0; i < length; i++) {
+          result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+      }
+
+      for (let file of filesToUpload) {
+        try {
+          file._statusEl.className = "status uploading";
+          file._statusEl.textContent = "⬆ Загрузка...";
+          file._progressEl.style.width = "0%";
+
+          const ext = file.name.includes(".") ? file.name.substring(file.name.lastIndexOf(".")) : "";
+          const newFileName = `${subfolderName}__${getRandomSuffix()}${ext}`;
+
+          const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedBaseFolder}/${encodeURIComponent(newFileName)}&overwrite=true`, {
+            method: "GET",
+            headers: { Authorization: `OAuth ${accessToken}` }
+          });
+          const uploadData = await uploadRes.json();
+          if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
+
+          // Используем XMLHttpRequest, чтобы отслеживать прогресс
+          await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", uploadData.href, true);
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                file._progressEl.style.width = percent + "%";
+              }
+            };
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                resolve();
+              } else {
+                reject(new Error("Ошибка загрузки"));
+              }
+            };
+            xhr.onerror = () => reject(new Error("Сетевая ошибка"));
+            xhr.send(file);
+          });
+
+          log(`Файл "${file.name}" сохранён как "${newFileName}" в "${folderName}".`);
+          file._statusEl.className = "status success";
+          file._statusEl.textContent = "✅ Загружено";
+          file._progressEl.style.width = "100%";
+        } catch (err) {
+          log(`Ошибка при загрузке "${file.name}": ${err.message}`);
+          file._statusEl.className = "status error";
+          file._statusEl.textContent = "❌ Ошибка";
+          file._progressEl.style.background = "#d93025";
+        }
+      }
+
+      filesToUpload = [];
+      fileInput.value = "";
+    };
+  }
 </script>
 </body>
 </html>

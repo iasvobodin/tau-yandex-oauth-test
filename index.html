@@ -45,33 +45,45 @@
 
   #preview {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
     margin-top: 10px;
   }
 
   .thumb {
-    margin: 5px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
     border: 1px solid #ccc;
     border-radius: 6px;
-    padding: 5px;
-    width: 90px;
-    text-align: center;
+    padding: 8px;
     background: white;
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
   }
 
   .thumb img {
-    max-width: 80px;
-    max-height: 80px;
+    width: 120px;
+    height: auto;
     border-radius: 4px;
+    flex-shrink: 0;
   }
 
-  .thumb p {
-    font-size: 0.7rem;
-    margin: 4px 0 0;
-    word-break: break-word;
+  .file-info {
+    flex: 1;
+    font-size: 0.9rem;
   }
+
+  .status {
+    font-size: 0.9rem;
+    font-weight: bold;
+    min-width: 100px;
+    text-align: right;
+  }
+
+  .status.waiting { color: #888; }
+  .status.uploading { color: #e69500; }
+  .status.success { color: #2d9d2d; }
+  .status.error { color: #d93025; }
 
   #output {
     background: #f4f4f4;
@@ -92,11 +104,11 @@
       padding: 8px 12px;
     }
     .thumb {
-      width: 70px;
+      flex-direction: column;
+      align-items: flex-start;
     }
-    .thumb img {
-      max-width: 60px;
-      max-height: 60px;
+    .status {
+      text-align: left;
     }
   }
 </style>
@@ -116,7 +128,6 @@
 <pre id="output"></pre>
 
 <script>
- 
   const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; 
   const REDIRECT_URI = window.location.origin + window.location.pathname;
   let filesToUpload = [];
@@ -140,7 +151,7 @@
     folderName = stateData.folder || folderName;
     subfolderName = stateData.subfolder || subfolderName;
 
-    document.getElementById("info").textContent = `Вы загружаете фотографии в папку "${folderName}/${subfolderName}"`;
+    document.getElementById("info").textContent = `Вы загружаете файлы в папку "${folderName}" под именем "${subfolderName}-***"`;
 
     const output = document.getElementById("output");
     function log(msg) { output.textContent += msg + "\n"; }
@@ -148,8 +159,6 @@
     log("Авторизация успешна. Access token получен.");
 
     const fileInput = document.getElementById("fileInput");
-
-
     document.getElementById("selectBtn").onclick = () => fileInput.click();
 
     fileInput.onchange = (event) => {
@@ -159,13 +168,24 @@
       filesToUpload.forEach(file => {
         const div = document.createElement("div");
         div.className = "thumb";
+
         const img = document.createElement("img");
         img.src = URL.createObjectURL(file);
-        const p = document.createElement("p");
-        p.textContent = file.name;
+
+        const infoDiv = document.createElement("div");
+        infoDiv.className = "file-info";
+        infoDiv.textContent = file.name;
+
+        const statusDiv = document.createElement("div");
+        statusDiv.className = "status waiting";
+        statusDiv.textContent = "⏳ Ожидает";
+
         div.appendChild(img);
-        div.appendChild(p);
+        div.appendChild(infoDiv);
+        div.appendChild(statusDiv);
         previewDiv.appendChild(div);
+
+        file._statusEl = statusDiv; // сохраним ссылку
       });
     };
 
@@ -194,89 +214,58 @@
     }
 
     document.getElementById("uploadBtn").onclick = async () => {
-  const baseFolder = `Системы ТАУ - Общее/Фото ТАУ контроль/${folderName}`;
+      const baseFolder = `Системы ТАУ - Общее/Фото ТАУ контроль/${folderName}`;
 
-  try {
-    await ensureFolderExists(baseFolder);
-  } catch(e) {
-    log("Не удалось подготовить папку. Загрузка отменена.");
-    return;
-  }
+      try {
+        await ensureFolderExists(baseFolder);
+      } catch(e) {
+        log("Не удалось подготовить папку. Загрузка отменена.");
+        return;
+      }
 
-  const encodedBaseFolder = encodeURIComponent(baseFolder);
+      const encodedBaseFolder = encodeURIComponent(baseFolder);
 
-  function getRandomSuffix(length = 3) {
-    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let result = "";
-    for (let i = 0; i < length; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
-  }
+      function getRandomSuffix(length = 3) {
+        const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        let result = "";
+        for (let i = 0; i < length; i++) {
+          result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+      }
 
-  for (let file of filesToUpload) {
-    try {
-      // берём расширение файла
-      const ext = file.name.includes(".") ? file.name.substring(file.name.lastIndexOf(".")) : "";
-      // новое имя: subfolder + '-' + rand + ext
-      const newFileName = `${subfolderName}-${getRandomSuffix()}${ext}`;
+      for (let file of filesToUpload) {
+        try {
+          file._statusEl.className = "status uploading";
+          file._statusEl.textContent = "⬆ Загрузка...";
 
-      const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedBaseFolder}/${encodeURIComponent(newFileName)}&overwrite=true`, {
-        method: "GET",
-        headers: { Authorization: `OAuth ${accessToken}` }
-      });
-      const uploadData = await uploadRes.json();
-      if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
+          // берём расширение файла
+          const ext = file.name.includes(".") ? file.name.substring(file.name.lastIndexOf(".")) : "";
+          const newFileName = `${subfolderName}__${getRandomSuffix()}${ext}`;
 
-      const putRes = await fetch(uploadData.href, { method: "PUT", body: file });
-      if (!putRes.ok) throw new Error("Ошибка загрузки файла");
+          const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedBaseFolder}/${encodeURIComponent(newFileName)}&overwrite=true`, {
+            method: "GET",
+            headers: { Authorization: `OAuth ${accessToken}` }
+          });
+          const uploadData = await uploadRes.json();
+          if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
 
-      log(`Файл "${file.name}" сохранён как "${newFileName}" в "${folderName}".`);
-    } catch (err) {
-      log(`Ошибка при загрузке "${file.name}": ${err.message}`);
-    }
-  }
+          const putRes = await fetch(uploadData.href, { method: "PUT", body: file });
+          if (!putRes.ok) throw new Error("Ошибка загрузки файла");
 
-  filesToUpload = [];
-  document.getElementById("preview").innerHTML = "";
-  fileInput.value = "";
-};
-    // document.getElementById("uploadBtn").onclick = async () => {
-    //   const baseFolder = `Системы ТАУ - Общее/Фото ТАУ контроль/${folderName}`;
-    //   const subFolder = `${baseFolder}/${subfolderName}`;
+          log(`Файл "${file.name}" сохранён как "${newFileName}" в "${folderName}".`);
+          file._statusEl.className = "status success";
+          file._statusEl.textContent = "✅ Загружено";
+        } catch (err) {
+          log(`Ошибка при загрузке "${file.name}": ${err.message}`);
+          file._statusEl.className = "status error";
+          file._statusEl.textContent = "❌ Ошибка";
+        }
+      }
 
-    //   try {
-    //     await ensureFolderExists(baseFolder);
-    //     await ensureFolderExists(subFolder);
-    //   } catch(e) {
-    //     log("Не удалось подготовить папки. Загрузка отменена.");
-    //     return;
-    //   }
-
-    //   const encodedSubFolder = encodeURIComponent(subFolder);
-
-    //   for (let file of filesToUpload) {
-    //     try {
-    //       const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedSubFolder}/${encodeURIComponent(file.name)}&overwrite=true`, {
-    //         method: "GET",
-    //         headers: { Authorization: `OAuth ${accessToken}` }
-    //       });
-    //       const uploadData = await uploadRes.json();
-    //       if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
-
-    //       const putRes = await fetch(uploadData.href, { method: "PUT", body: file });
-    //       if (!putRes.ok) throw new Error("Ошибка загрузки файла");
-
-    //       log(`Файл "${file.name}" успешно загружен в "${folderName}/${subfolderName}".`);
-    //     } catch (err) {
-    //       log(`Ошибка при загрузке "${file.name}": ${err.message}`);
-    //     }
-    //   }
-
-    //   filesToUpload = [];
-    //   document.getElementById("preview").innerHTML = "";
-    //   fileInput.value = "";
-    // };
+      filesToUpload = [];
+      fileInput.value = "";
+    };
   }
 </script>
 </body>

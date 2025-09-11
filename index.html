@@ -116,8 +116,8 @@
 <pre id="output"></pre>
 
 <script>
-  // --- твой рабочий скрипт без изменений ---
-  const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; // вставь свой client_id
+ 
+  const CLIENT_ID = "e6e17b4cbbb6476d940403b2b1057da2"; 
   const REDIRECT_URI = window.location.origin + window.location.pathname;
   let filesToUpload = [];
 
@@ -148,6 +148,8 @@
     log("Авторизация успешна. Access token получен.");
 
     const fileInput = document.getElementById("fileInput");
+
+
     document.getElementById("selectBtn").onclick = () => fileInput.click();
 
     fileInput.onchange = (event) => {
@@ -192,41 +194,89 @@
     }
 
     document.getElementById("uploadBtn").onclick = async () => {
-      const baseFolder = `Системы ТАУ - Общее/Фото ТАУ контроль/${folderName}`;
-      const subFolder = `${baseFolder}/${subfolderName}`;
+  const baseFolder = `Системы ТАУ - Общее/Фото ТАУ контроль/${folderName}`;
 
-      try {
-        await ensureFolderExists(baseFolder);
-        await ensureFolderExists(subFolder);
-      } catch(e) {
-        log("Не удалось подготовить папки. Загрузка отменена.");
-        return;
-      }
+  try {
+    await ensureFolderExists(baseFolder);
+  } catch(e) {
+    log("Не удалось подготовить папку. Загрузка отменена.");
+    return;
+  }
 
-      const encodedSubFolder = encodeURIComponent(subFolder);
+  const encodedBaseFolder = encodeURIComponent(baseFolder);
 
-      for (let file of filesToUpload) {
-        try {
-          const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedSubFolder}/${encodeURIComponent(file.name)}&overwrite=true`, {
-            method: "GET",
-            headers: { Authorization: `OAuth ${accessToken}` }
-          });
-          const uploadData = await uploadRes.json();
-          if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
+  function getRandomSuffix(length = 3) {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let result = "";
+    for (let i = 0; i < length; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  }
 
-          const putRes = await fetch(uploadData.href, { method: "PUT", body: file });
-          if (!putRes.ok) throw new Error("Ошибка загрузки файла");
+  for (let file of filesToUpload) {
+    try {
+      // берём расширение файла
+      const ext = file.name.includes(".") ? file.name.substring(file.name.lastIndexOf(".")) : "";
+      // новое имя: subfolder + '-' + rand + ext
+      const newFileName = `${subfolderName}-${getRandomSuffix()}${ext}`;
 
-          log(`Файл "${file.name}" успешно загружен в "${folderName}/${subfolderName}".`);
-        } catch (err) {
-          log(`Ошибка при загрузке "${file.name}": ${err.message}`);
-        }
-      }
+      const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedBaseFolder}/${encodeURIComponent(newFileName)}&overwrite=true`, {
+        method: "GET",
+        headers: { Authorization: `OAuth ${accessToken}` }
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
 
-      filesToUpload = [];
-      document.getElementById("preview").innerHTML = "";
-      fileInput.value = "";
-    };
+      const putRes = await fetch(uploadData.href, { method: "PUT", body: file });
+      if (!putRes.ok) throw new Error("Ошибка загрузки файла");
+
+      log(`Файл "${file.name}" сохранён как "${newFileName}" в "${folderName}".`);
+    } catch (err) {
+      log(`Ошибка при загрузке "${file.name}": ${err.message}`);
+    }
+  }
+
+  filesToUpload = [];
+  document.getElementById("preview").innerHTML = "";
+  fileInput.value = "";
+};
+    // document.getElementById("uploadBtn").onclick = async () => {
+    //   const baseFolder = `Системы ТАУ - Общее/Фото ТАУ контроль/${folderName}`;
+    //   const subFolder = `${baseFolder}/${subfolderName}`;
+
+    //   try {
+    //     await ensureFolderExists(baseFolder);
+    //     await ensureFolderExists(subFolder);
+    //   } catch(e) {
+    //     log("Не удалось подготовить папки. Загрузка отменена.");
+    //     return;
+    //   }
+
+    //   const encodedSubFolder = encodeURIComponent(subFolder);
+
+    //   for (let file of filesToUpload) {
+    //     try {
+    //       const uploadRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources/upload?path=${encodedSubFolder}/${encodeURIComponent(file.name)}&overwrite=true`, {
+    //         method: "GET",
+    //         headers: { Authorization: `OAuth ${accessToken}` }
+    //       });
+    //       const uploadData = await uploadRes.json();
+    //       if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
+
+    //       const putRes = await fetch(uploadData.href, { method: "PUT", body: file });
+    //       if (!putRes.ok) throw new Error("Ошибка загрузки файла");
+
+    //       log(`Файл "${file.name}" успешно загружен в "${folderName}/${subfolderName}".`);
+    //     } catch (err) {
+    //       log(`Ошибка при загрузке "${file.name}": ${err.message}`);
+    //     }
+    //   }
+
+    //   filesToUpload = [];
+    //   document.getElementById("preview").innerHTML = "";
+    //   fileInput.value = "";
+    // };
   }
 </script>
 </body>

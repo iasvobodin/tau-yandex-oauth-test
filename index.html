@@ -45,38 +45,56 @@
 
   #preview {
     display: grid;
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 15px;
     margin-top: 10px;
   }
 
   .thumb {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 12px;
     border: 1px solid #ccc;
-    border-radius: 6px;
-    padding: 8px;
+    border-radius: 8px;
+    padding: 10px;
     background: white;
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
   }
 
   .thumb img {
-    width: 120px;
+    width: 180px;
     height: auto;
-    border-radius: 4px;
-    flex-shrink: 0;
+    border-radius: 6px;
+    margin-bottom: 8px;
   }
 
   .file-info {
-    flex: 1;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
+    text-align: center;
+    margin-bottom: 6px;
+    word-break: break-word;
+  }
+
+  .progress-container {
+    width: 100%;
+    background: #eee;
+    border-radius: 6px;
+    overflow: hidden;
+    height: 8px;
+    margin-bottom: 6px;
+  }
+
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: #4a90e2;
+    transition: width 0.2s ease;
   }
 
   .status {
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: bold;
-    min-width: 100px;
-    text-align: right;
+    text-align: center;
   }
 
   .status.waiting { color: #888; }
@@ -93,23 +111,6 @@
     border-radius: 6px;
     margin-top: 20px;
   }
-
-  @media (max-width: 600px) {
-    h2 {
-      font-size: 1rem;
-    }
-    button {
-      font-size: 0.8rem;
-      padding: 8px 12px;
-    }
-    .thumb {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-    .status {
-      text-align: left;
-    }
-  }
 </style>
 </head>
 <body>
@@ -117,7 +118,7 @@
 <h2 id="info">Вы загружаете фотографии на общий диск</h2>
 
 <div id="controls">
-  <input type="file" id="fileInput"  accept="image/*,video/*"  multiple capture="environment" style="display:none"/>
+  <input type="file" id="fileInput" accept="image/*,video/*" multiple capture="environment" style="display:none"/>
   <button id="selectBtn">Выбрать фотографии</button>
   <button id="uploadBtn">Загрузить выбранные фото</button>
 </div>
@@ -155,8 +156,6 @@
     const output = document.getElementById("output");
     function log(msg) { output.textContent += msg + "\n"; }
 
-    log("Авторизация успешна. Access token получен.");
-
     const fileInput = document.getElementById("fileInput");
     document.getElementById("selectBtn").onclick = () => fileInput.click();
 
@@ -175,40 +174,39 @@
         infoDiv.className = "file-info";
         infoDiv.textContent = file.name;
 
+        const progressContainer = document.createElement("div");
+        progressContainer.className = "progress-container";
+        const progressBar = document.createElement("div");
+        progressBar.className = "progress-bar";
+        progressContainer.appendChild(progressBar);
+
         const statusDiv = document.createElement("div");
         statusDiv.className = "status waiting";
         statusDiv.textContent = "⏳ Ожидает";
 
         div.appendChild(img);
         div.appendChild(infoDiv);
+        div.appendChild(progressContainer);
         div.appendChild(statusDiv);
         previewDiv.appendChild(div);
 
-        file._statusEl = statusDiv; // сохраним ссылку
+        file._statusEl = statusDiv;
+        file._progressEl = progressBar;
       });
     };
 
     async function ensureFolderExists(path) {
       const encodedPath = encodeURIComponent(path);
-      try {
-        const res = await fetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodedPath}`, {
-          method: "GET",
+      const res = await fetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodedPath}`, {
+        method: "GET",
+        headers: { Authorization: `OAuth ${accessToken}` }
+      });
+      if (res.status === 404) {
+        const createRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodedPath}`, {
+          method: "PUT",
           headers: { Authorization: `OAuth ${accessToken}` }
         });
-        if (res.status === 404) {
-          log(`Папка "${path}" не найдена. Создаём...`);
-          const createRes = await fetch(`https://cloud-api.yandex.net/v1/disk/resources?path=${encodedPath}`, {
-            method: "PUT",
-            headers: { Authorization: `OAuth ${accessToken}` }
-          });
-          if (!createRes.ok) throw new Error(`Ошибка создания папки: ${createRes.status}`);
-          log(`Папка "${path}" успешно создана.`);
-        } else {
-          log(`Папка "${path}" уже существует.`);
-        }
-      } catch (err) {
-        log(`Ошибка при проверке/создании папки "${path}": ${err.message}`);
-        throw err;
+        if (!createRes.ok) throw new Error(`Ошибка создания папки: ${createRes.status}`);
       }
     }
 
@@ -237,8 +235,8 @@
         try {
           file._statusEl.className = "status uploading";
           file._statusEl.textContent = "⬆ Загрузка...";
+          file._progressEl.style.width = "0%";
 
-          // берём расширение файла
           const ext = file.name.includes(".") ? file.name.substring(file.name.lastIndexOf(".")) : "";
           const newFileName = `${subfolderName}__${getRandomSuffix()}${ext}`;
 
@@ -249,16 +247,36 @@
           const uploadData = await uploadRes.json();
           if (!uploadData.href) throw new Error("Не удалось получить ссылку для загрузки");
 
-          const putRes = await fetch(uploadData.href, { method: "PUT", body: file });
-          if (!putRes.ok) throw new Error("Ошибка загрузки файла");
+          // Используем XMLHttpRequest, чтобы отслеживать прогресс
+          await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", uploadData.href, true);
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                file._progressEl.style.width = percent + "%";
+              }
+            };
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                resolve();
+              } else {
+                reject(new Error("Ошибка загрузки"));
+              }
+            };
+            xhr.onerror = () => reject(new Error("Сетевая ошибка"));
+            xhr.send(file);
+          });
 
           log(`Файл "${file.name}" сохранён как "${newFileName}" в "${folderName}".`);
           file._statusEl.className = "status success";
           file._statusEl.textContent = "✅ Загружено";
+          file._progressEl.style.width = "100%";
         } catch (err) {
           log(`Ошибка при загрузке "${file.name}": ${err.message}`);
           file._statusEl.className = "status error";
           file._statusEl.textContent = "❌ Ошибка";
+          file._progressEl.style.background = "#d93025";
         }
       }
 

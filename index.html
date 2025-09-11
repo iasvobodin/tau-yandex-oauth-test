@@ -148,24 +148,45 @@
   const REDIRECT_URI = window.location.origin + window.location.pathname;
   let filesToUpload = [];
 
+  // сначала читаем параметры из query (если они были до редиректа)
   let urlParams = new URLSearchParams(window.location.search);
   let folderName = urlParams.get('folder') || 'Фото';
   let subfolderName = urlParams.get('subfolder') || 'Новая папка';
 
-  // ---- Работа с токеном ----
+  // читаем хэш (куда OAuth вернёт access_token и state)
   const hash = new URLSearchParams(window.location.hash.substring(1));
-  let accessToken = hash.get("access_token");
+  const accessTokenFromHash = hash.get("access_token");
 
-  // если токен пришёл через URL → кладём в sessionStorage и чистим адрес
-  if (accessToken) {
-    sessionStorage.setItem("yandex_token", accessToken);
-    history.replaceState(null, "", window.location.pathname + window.location.search);
+  // если токен пришёл через URL (редирект OAuth), то:
+  if (accessTokenFromHash) {
+    // состояние может быть в state (мы туда передавали folder/subfolder)
+    let stateData = {};
+    try {
+      stateData = JSON.parse(decodeURIComponent(hash.get('state') || '{}'));
+    } catch (e) {
+      // ignore
+    }
+
+    // восстановим folder/subfolder из state (если там есть), иначе используем уже прочитанные из query
+    folderName = stateData.folder || folderName;
+    subfolderName = stateData.subfolder || subfolderName;
+
+    // сохраняем токен в sessionStorage
+    sessionStorage.setItem("yandex_token", accessTokenFromHash);
+
+    // восстановим параметры в адресной строке (чтобы ?folder=...&subfolder=... остались видны)
+    const newSearch = new URLSearchParams(window.location.search);
+    newSearch.set('folder', folderName);
+    newSearch.set('subfolder', subfolderName);
+
+    history.replaceState(null, "", window.location.pathname + "?" + newSearch.toString());
+    // теперь hash (с access_token) удалён из адресной строки и folder/subfolder в query
   }
 
-  // берём токен из sessionStorage
-  accessToken = sessionStorage.getItem("yandex_token");
+  // достаём токен из sessionStorage
+  let accessToken = sessionStorage.getItem("yandex_token");
 
-  // если токена нет → авторизуем
+  // если токена нет — направляем на OAuth
   if (!accessToken) {
     const state = encodeURIComponent(JSON.stringify({ folder: folderName, subfolder: subfolderName }));
     const authUrl = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=cloud_api:disk.read cloud_api:disk.write&state=${state}`;
